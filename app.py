@@ -113,39 +113,86 @@ def move_event(number_key,slider_key,delta,last):
     st.session_state[slider_key]=value
     st.session_state[number_key]=value
 
+def reset_playback_clock(clock_key):
+    st.session_state[clock_key]=time.monotonic()
+
+@st.fragment(run_every=0.25)
+def event_player(trace,n,protocol,delay,run_id):
+    """Render controls under the diagram and advance continuously when enabled."""
+    slider_key=f'trace_slider_{run_id}'; number_key=f'trace_number_{run_id}'
+    auto_key=f'trace_auto_{run_id}'; clock_key=f'trace_clock_{run_id}'
+    if slider_key not in st.session_state: st.session_state[slider_key]=1
+    if number_key not in st.session_state: st.session_state[number_key]=1
+    if auto_key not in st.session_state: st.session_state[auto_key]=False
+    last=len(trace)
+    if st.session_state[auto_key]:
+        now=time.monotonic()
+        previous=st.session_state.get(clock_key,now)
+        if now-previous>=delay:
+            current=int(st.session_state[slider_key])
+            if current<last:
+                st.session_state[slider_key]=current+1
+                st.session_state[number_key]=current+1
+                st.session_state[clock_key]=now
+            else:
+                st.session_state[auto_key]=False
+    selected=min(last-1,max(0,int(st.session_state[slider_key])-1))
+    event=trace[selected]
+    st.markdown(draw_channel(event,n,protocol,selected,len(trace)),unsafe_allow_html=True)
+
+    # Playback controls intentionally sit directly below the animated channel.
+    col_auto,col_prev,col_next=st.columns([2,1,1])
+    col_auto.toggle('Run animation continuously',key=auto_key,
+                    on_change=reset_playback_clock,args=(clock_key,),
+                    help='Automatically advance one recorded event at a time. Turn it off to pause.')
+    col_prev.button('◀ Previous',disabled=selected==0,key=f'prev_{run_id}',
+                    on_click=move_event,args=(number_key,slider_key,-1,last))
+    col_next.button('Next ▶',disabled=selected>=last-1,key=f'next_{run_id}',
+                    on_click=move_event,args=(number_key,slider_key,1,last))
+    number_col,slider_col=st.columns([1,5])
+    number_col.number_input('Event number',min_value=1,max_value=last,key=number_key,
+                            on_change=sync_number_to_slider,args=(number_key,slider_key,last),
+                            help='Type an event number to jump directly to it.')
+    slider_col.slider('Event timeline',min_value=1,max_value=last,key=slider_key,
+                      on_change=sync_slider_to_number,args=(number_key,slider_key,last),
+                      help='Drag to inspect the recorded process. The default event is 1.')
+
+    title,description=explain_event(protocol,event)
+    st.markdown(f'<div class="phase-card"><h4>{escape(title)}</h4><p>{escape(description)}</p><p><b>Event detail:</b> {escape(event["detail"])}</p></div>',unsafe_allow_html=True)
+    st.markdown('**Station states at this event**')
+    rows=[{'Station':f'Station {i+1}','State now':state,
+           'Backoff counter':event['backoff'][i],'Backoff stage':event['stage'][i]}
+          for i,state in enumerate(event['states'])]
+    st.dataframe(pd.DataFrame(rows),hide_index=True,use_container_width=True)
+
 def run_protocol(name,n,duration,seed,payload,rts):
     if name=='CSMA': return csma_simulate(n,duration,seed=seed,payload_bits=payload,record_trace=True)
     if name=='CSMA/CD': return cd_simulate(n,duration,seed=seed,payload_bits=payload,record_trace=True)
     return ca_simulate(n,duration,seed=seed,payload_bits=payload,rts_cts=rts,record_trace=True)
 
 def metric_table(result):
-    """Format scalar output into a clear metric / value / interpretation table."""
+    """Show five key outcomes with short, learner-friendly definitions."""
     rows=[
-        ('Normalized throughput',f'{result["throughput"]:.3f}', 'Fraction of configured link rate carrying useful payload. 0.70 means about 70% payload efficiency.'),
-        ('Mean access delay',f'{result["mean_delay_s"]*1000:.3f} ms', 'Average time from a packet waiting to its successful delivery in this run.'),
-        ('95th-percentile delay',f'{result["p95_delay_s"]*1000:.3f} ms', '95% of measured packet delays were at or below this value.'),
-        ('Successful frames delivered',str(sum(result['per_station_successes'])), 'Total packets successfully delivered across all stations.'),
-        ('Per-station deliveries',', '.join(f'S{i+1}: {count}' for i,count in enumerate(result['per_station_successes'])), 'Counts used to calculate Jain fairness; equal counts indicate more even sharing.'),
+        ('Normalized throughput',f'{result["throughput"]:.3f}', 'Useful payload rate as a fraction of the configured link rate.'),
+        ('Mean access delay',f'{result["mean_delay_s"]*1000:.3f} ms', 'Average time from a packet becoming ready until successful delivery.'),
         ('Collision probability',f'{result["collision_probability"]:.1%}', 'Collided transmission attempts divided by all transmission attempts.'),
-        ('Frame drop rate',f'{result["drop_rate"]:.2%}', 'Retry-limit drops divided by the counted transmission attempts.'),
-        ('Success airtime',f'{result["success_fraction"]:.1%}', 'Share of simulated channel time used by successful exchanges.'),
-        ('Collision airtime',f'{result["collision_fraction"]:.1%}', 'Share of channel time wasted by collisions.'),
-        ('Idle airtime',f'{result["idle_fraction"]:.1%}', 'Share of channel time with no successful or collided transmission.'),
-        ("Jain's fairness",f'{result["fairness"]:.3f}', 'Delivery balance across stations: 1 is equal sharing; values near 0 indicate concentration.'),
-        ('Attempts / collided attempts',f'{result["attempts"]} / {result["collisions"]}', 'Total station transmission attempts, followed by the attempts that collided.'),
-        ('Frames dropped',str(result['drops']), 'Frames discarded after exceeding the configured retry limit.'),
+        ('Frame drop rate',f'{result["drop_rate"]:.2%}', 'Retry-limit drops divided by counted attempts in this simulator.'),
+        ("Jain's fairness",f'{result["fairness"]:.3f}', 'How evenly deliveries are shared: 1 means equal sharing.'),
     ]
     return pd.DataFrame(rows,columns=['Metric','Run value','What it tells you'])
 
-with st.sidebar:
-    st.header('Simulation setup')
-    stations=st.slider('Stations',2,12,5,help='Number of stations sharing the channel.')
-    duration=st.slider('Simulation duration (s)',0.03,0.5,0.12,0.01,help='A short horizon makes a quick visual run.')
-    payload=st.select_slider('Payload (bits)',options=[512,1024,2048,4096,8184],value=2048)
-    seed=st.number_input('Random seed',min_value=0,max_value=99999,value=17)
-    rts=st.toggle('Enable RTS/CTS in CSMA/CA',value=False)
-    animation_delay=st.slider('Animation pause per event (seconds)',0.35,1.5,0.8,0.05,help='Longer pauses make each backoff or transmission easier to follow.')
-    st.caption('Same seed reproduces the same random backoff choices.')
+# Setup controls are displayed in a full-width panel at the bottom of the page.
+setup_defaults={'setup_stations':5,'setup_duration':0.12,'setup_payload':2048,
+                'setup_seed':17,'setup_rts':False,'setup_delay':0.8}
+for key,value in setup_defaults.items():
+    if key not in st.session_state:
+        st.session_state[key]=value
+stations=st.session_state['setup_stations']
+duration=st.session_state['setup_duration']
+payload=st.session_state['setup_payload']
+seed=st.session_state['setup_seed']
+rts=st.session_state['setup_rts']
+animation_delay=st.session_state['setup_delay']
 
 lab,comparison,concepts=st.tabs(['▶ Working simulation','⇄ Compare protocols','Learn the terms'])
 with lab:
@@ -166,58 +213,10 @@ with lab:
         trace=result.get('trace',[]); active_protocol=st.session_state.get('mac_protocol',protocol)
         if trace:
             run_id=st.session_state.get('mac_run_id',1)
-            slider_key=f'trace_slider_{run_id}'; number_key=f'trace_number_{run_id}'
-            if slider_key not in st.session_state: st.session_state[slider_key]=1
-            if number_key not in st.session_state: st.session_state[number_key]=1
-            slider_last=len(trace)
-            selected=min(slider_last-1,max(0,int(st.session_state[slider_key])-1))
-            event=trace[selected]
-            animation=st.empty()
-            animation.markdown(draw_channel(event,stations,active_protocol,selected,len(trace)),unsafe_allow_html=True)
-            phase_slot=st.empty()
-            def show_phase(current):
-                phase_title,phase_description=explain_event(active_protocol,current)
-                phase_slot.markdown(f'<div class="phase-card"><h4>{escape(phase_title)}</h4><p>{escape(phase_description)}</p><p><b>Event detail:</b> {escape(current["detail"])}</p></div>',unsafe_allow_html=True)
-            show_phase(event)
-            st.markdown('**Station states at this event**')
-            station_slot=st.empty()
-            def show_stations(current):
-                rows=[]
-                for i,state in enumerate(current['states']):
-                    rows.append({'Station':f'Station {i+1}','State now':state,
-                                 'Backoff counter':current['backoff'][i],
-                                 'Backoff stage':current['stage'][i]})
-                station_slot.dataframe(pd.DataFrame(rows),hide_index=True,use_container_width=True)
-            show_stations(event)
+            event_player(trace,stations,active_protocol,animation_delay,run_id)
             st.subheader('Metrics from the complete run')
             st.dataframe(metric_table(result),hide_index=True,use_container_width=True)
             st.caption(f"Trace contains the first {len(trace)} recorded events (maximum 300); metrics cover the full {result['elapsed_s']:.3f} s run · Seed: {int(seed)}")
-            st.divider()
-            st.markdown('**Playback and event position**')
-            previous,next_col,play_col=st.columns([1,1,2])
-            previous.button('◀ Previous event',disabled=selected==0,key=f'prev_{run_id}',
-                            on_click=move_event,args=(number_key,slider_key,-1,slider_last))
-            next_col.button('Next event ▶',disabled=selected>=slider_last-1,key=f'next_{run_id}',
-                            on_click=move_event,args=(number_key,slider_key,1,slider_last))
-            play=play_col.button(f'▶ Play next events · {animation_delay:.2f}s pause',key=f'play_{run_id}',disabled=selected>=slider_last-1)
-            if play:
-                end=min(len(trace),selected+13)
-                for idx in range(selected+1,end):
-                    current=trace[idx]
-                    animation.markdown(draw_channel(current,stations,active_protocol,idx,len(trace)),unsafe_allow_html=True)
-                    show_phase(current)
-                    show_stations(current)
-                    time.sleep(animation_delay)
-                st.session_state[slider_key]=max(selected,end-1)+1
-                st.session_state[number_key]=max(selected,end-1)+1
-                st.rerun()
-            number_col,slider_col=st.columns([1,5])
-            number_col.number_input('Event number',min_value=1,max_value=len(trace),key=number_key,
-                                    on_change=sync_number_to_slider,args=(number_key,slider_key,slider_last),
-                                    help='Type an event number to jump directly to it.')
-            slider_col.slider('Event timeline',min_value=1,max_value=slider_last,key=slider_key,
-                              on_change=sync_slider_to_number,args=(number_key,slider_key,slider_last),
-                              help='Drag to inspect the recorded working process. The default is event 1.')
     else:
         st.info('Choose a protocol and press **Run / reset simulation**. Then inspect each phase or play the trace at a slower pace.')
 
@@ -246,7 +245,7 @@ with comparison:
             st.bar_chart(comp.set_index('Protocol')[['Collision probability']],horizontal=True)
         st.dataframe(comp.set_index('Protocol').style.format({'Normalized throughput':'{:.3f}','Mean delay (ms)':'{:.2f}','Collision probability':'{:.1%}','Frame drop rate':'{:.1%}',"Jain's fairness":'{:.3f}'}),use_container_width=True)
     else:
-        st.info('Press **Run comparative analysis** to compare all three protocols with the current sidebar settings.')
+        st.info('Press **Run comparative analysis** to compare all three protocols with the current simulation settings below.')
     st.warning(f"CSMA/CD is configured at {CD.rate_bps/1e6:g} Mb/s; CSMA/CA at {CA.rate_bps/1e6:g} Mb/s. Throughput is normalized to each configured rate, so it compares channel efficiency rather than raw bit rate.")
 
 with concepts:
@@ -278,12 +277,8 @@ with concepts:
 |---|---|---|
 | **Normalized throughput** | Successfully delivered payload bits ÷ (simulation time × configured link rate). | A value of 0.70 means 70% of the configured rate carried useful payload in the model. |
 | **Mean access delay** | Average wait from a packet becoming ready until successful delivery. | Lower is generally better; contention and retries tend to increase it. |
-| **95th-percentile delay** | Delay at or below which 95% of successful packets completed. | Shows the slower tail that the mean can hide. |
 | **Collision probability** | Collided transmission attempts ÷ all transmission attempts. | Higher means stations more often transmit at the same time. |
 | **Frame drop rate** | Retry-limit drops divided by counted attempts in this simulator. | Nonzero means some frames exceeded the retry limit. |
-| **Success airtime** | Fraction of simulated channel time spent in successful exchanges. | More airtime delivering data is usually useful. |
-| **Collision airtime** | Fraction of time consumed by unsuccessful overlaps. | This is wasted channel capacity. CD aims to keep this short by aborting early. |
-| **Idle airtime** | Fraction of time with no transmission. | Some idle time is needed for sensing and backoff; too much can indicate excess waiting. |
 | **Jain's fairness** | `(sum of station deliveries)² ÷ (station count × sum of squared deliveries)`. | 1 means equal deliveries; near `1/N` means one station received nearly all deliveries. |
 ''')
     st.caption('The Bianchi curve below is an analytical saturation-throughput reference for CSMA/CA. It helps compare the DCF simulator with a mathematical model.')
@@ -292,3 +287,16 @@ with concepts:
     with st.expander('Generated experiment figures'):
         for image in sorted((ROOT/'results/plots').glob('*.png')):
             st.image(str(image),caption=image.stem,use_container_width=True)
+
+st.divider()
+with st.container(border=True):
+    st.header('Simulation setup')
+    st.caption('Choose the scenario settings here, then run or reset a simulation above. The same seed reproduces the same random backoff choices.')
+    setup_row1=st.columns(3)
+    setup_row1[0].slider('Stations',2,12,key='setup_stations',help='Number of stations sharing the channel.')
+    setup_row1[1].slider('Simulation duration (s)',0.03,0.5,step=0.01,key='setup_duration',help='A short horizon makes a quick visual run.')
+    setup_row1[2].select_slider('Payload (bits)',options=[512,1024,2048,4096,8184],key='setup_payload')
+    setup_row2=st.columns([1,1,2])
+    setup_row2[0].number_input('Random seed',min_value=0,max_value=99999,key='setup_seed')
+    setup_row2[1].toggle('Enable RTS/CTS in CSMA/CA',key='setup_rts')
+    setup_row2[2].slider('Animation pause per event (seconds)',0.35,1.5,step=0.05,key='setup_delay',help='Longer pauses make each event easier to follow. Continuous playback can be paused at any time.')
