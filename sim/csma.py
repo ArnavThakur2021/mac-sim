@@ -14,7 +14,7 @@ def simulate(n_stations=10,duration_s=1.0,seed=1,payload_bits=None,config=CD,
     frame_s=max(config.min_frame_bytes*8,bits+64)/config.rate_bps
     frame_time=frame_s+config.ifg_s; t=0.; cw=config.slot_s
     counters=rng.integers(0,config.max_backoff_stage+1,n); stages=np.zeros(n,int)
-    successes=[0]*n; delays=[]; attempts=collisions=drops=0; succ_t=coll_t=idle_t=0.; trace=[]
+    successes=[0]*n; delays=[]; born=np.zeros(n); attempts=collisions=drops=0; succ_t=coll_t=idle_t=0.; trace=[]
     def remember(kind, involved=(), detail='', duration=0.):
         if not record_trace or len(trace)>=trace_limit: return
         involved=set(map(int,involved)); states=[]
@@ -28,7 +28,8 @@ def simulate(n_stations=10,duration_s=1.0,seed=1,payload_bits=None,config=CD,
         ready=np.flatnonzero(counters==0)
         if len(ready)==1:
             i=int(ready[0]); remember('success',[i],'Sense idle → send DATA; channel releases after frame + IFG.',frame_time)
-            attempts+=1; successes[i]+=1; delays.append(frame_time); succ_t+=frame_time; t+=frame_time
+            attempts+=1; successes[i]+=1; delays.append(t+frame_time-born[i]); succ_t+=frame_time; t+=frame_time
+            born[i]=t
             stages[i]=0; counters[i]=int(rng.integers(0,config.max_backoff_stage+1))
         elif len(ready)>1:
             # Unlike CD, stations spend the entire frame interval before learning

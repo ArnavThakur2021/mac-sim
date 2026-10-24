@@ -21,7 +21,7 @@ The fast sweep generates CSV/PNG outputs in `results/`; omit `--fast` for five r
 
 `config.py` contains defaults; `sim/` contains the protocol and analytical models; `experiments/` contains sweep entry points; `tests/` holds unit tests; `results/data/` and `results/plots/` store generated outputs; `report/` has the written discussion and presentation material.
 
-The dashboard opens as a working simulation lab. Choose CSMA, CSMA/CD, or CSMA/CA, run a seeded scenario, then use the event slider, Previous/Next controls, or **Play next 12 events** to watch channel sensing, DIFS, backoff, transmission, collisions, and ACK behavior unfold station by station. The comparison tab runs the three protocols with the same station count, payload, duration, and seed, then charts normalized throughput and collision probability alongside delay and fairness. Dashboard runs are intentionally short for responsiveness.
+The dashboard opens as a working simulation lab. Choose CSMA, CSMA/CD, or CSMA/CA, run a seeded scenario, then use the event slider, editable event number, Previous/Next controls, or **Play next events** to watch channel sensing, DIFS, backoff, transmission, collisions, and ACK behavior unfold station by station. Playback defaults to 0.8 seconds per event and can be adjusted in the sidebar. Results appear in a metric table, and the Learn tab explains MAC access, every reported metric, and RTS/CTS. The comparison tab runs the three protocols with the same station count, payload, duration, and seed, then charts normalized throughput and collision probability alongside delay and fairness. Dashboard runs are intentionally short for responsiveness.
 
 ## Assumptions
 

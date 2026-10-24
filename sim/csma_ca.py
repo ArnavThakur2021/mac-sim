@@ -69,7 +69,9 @@ def simulate(n_stations=10, duration_s=1.0, seed=1, saturated=True,
             remember('collision',ready,'No ACK; contention window increases and contenders retry.',tc); collisions+=len(ready); ct+=tc; t+=tc
             for i in ready:
                 i=int(i); tries[i]+=1; stages[i]=min(stages[i]+1,m)
-                if tries[i]>retry: drops+=1; queued[i]=saturated; tries[i]=0; stages[i]=0
+                if tries[i]>retry:
+                    drops+=1; queued[i]=saturated; tries[i]=0; stages[i]=0
+                    if queued[i]: born[i]=t
                 if queued[i]: counters[i]=rng.integers(0,backoff_window(cw,stages[i],m))
         idle_since=0.
     elapsed=duration_s; accounted=st+ct+it; scale=elapsed/max(accounted,1e-15)

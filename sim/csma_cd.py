@@ -39,7 +39,7 @@ def simulate(n_stations=10, duration_s=1.0, seed=1, saturated=True,
         if len(ready) == 1:
             i=int(ready[0]); remember('success',[i],'Carrier clear → DATA → IFG.',busy_s); attempts+=1; successes[i]+=1; delays.append(t+busy_s-arrival[i]); succ_t+=busy_s; t+=busy_s
             stage[i]=0; queued[i]=saturated
-            if queued[i]: backoff[i]=0
+            if queued[i]: backoff[i]=0; arrival[i]=t
         elif len(ready)>1:
             attempts+=len(ready); collisions+=len(ready)
             ctime=max(config.slot_s, 2*config.propagation_s + config.jam_bits/config.rate_bps)
@@ -49,6 +49,7 @@ def simulate(n_stations=10, duration_s=1.0, seed=1, saturated=True,
                 stage[i]+=1
                 if stage[i]>=config.retry_limit:
                     drops+=1; stage[i]=0; queued[i]=saturated
+                    if queued[i]: arrival[i]=t
                 backoff[i]=int(rng.integers(0,2**min(stage[i],config.max_backoff_stage)))
         else:
             remember('carrier sense',queued & (backoff>0),'Channel idle; waiting stations decrement backoff.',config.slot_s)
