@@ -21,7 +21,7 @@ The fast sweep generates CSV/PNG outputs in `results/`; omit `--fast` for five r
 
 `config.py` contains defaults; `sim/` contains the protocol and analytical models; `experiments/` contains sweep entry points; `tests/` holds unit tests; `results/data/` and `results/plots/` store generated outputs; `report/` has the written discussion and presentation material.
 
-The dashboard has tabs for protocol overview, live simulations, comparison, hidden terminals, Bianchi validation and generated plots. Dashboard simulations use short durations for responsiveness.
+The dashboard opens as a working simulation lab. Choose CSMA, CSMA/CD, or CSMA/CA, run a seeded scenario, then use the event slider, Previous/Next controls, or **Play next 12 events** to watch channel sensing, DIFS, backoff, transmission, collisions, and ACK behavior unfold station by station. The comparison tab runs the three protocols with the same station count, payload, duration, and seed, then charts normalized throughput and collision probability alongside delay and fairness. Dashboard runs are intentionally short for responsiveness.
 
 ## Assumptions
 
